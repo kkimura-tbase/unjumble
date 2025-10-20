@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>語順パズル｜タッチで並べ替え</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="description" content="入力した英文の単語をランダムに並び替えて出題。タッチ操作で語順を並べ替えて解答できるシンプルなサイト。" />
+  <style>
+    :root { --tile-gap: .5rem; }
+    .tile { touch-action: manipulation; user-select: none; }
+    .tile.selected { outline: 3px solid #60a5fa; }
+    .tile.correct { background: #dcfce7; }
+    .tile.wrong { background: #fee2e2; }
+    .tile:active { transform: scale(0.98); }
+    .token-row { display: flex; flex-wrap: wrap; gap: var(--tile-gap); }
+    .dropzone { min-height: 3.5rem; border: 2px dashed rgba(0,0,0,.1); border-radius: .75rem; padding: .5rem; }
+    .kbd { border: 1px solid rgba(0,0,0,.2); border-bottom-width: 3px; border-radius: .5rem; padding: 0 .4rem; font-weight: 600; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <header class="max-w-5xl mx-auto px-4 py-6">
+    <h1 class="text-2xl md:text-3xl font-bold tracking-tight">語順パズル <span class="text-slate-400 text-base align-middle">｜タッチで並べ替え</span></h1>
+    <p class="text-slate-600 mt-1">Wordwallの「並べ替え」に似た、授業用の超軽量ツール。1ページ完結・GitHub Pages対応。</p>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 pb-24">
+    <!-- Tabs -->
+    <div class="flex gap-2 mb-4">
+      <button id="tab-author" class="px-3 py-2 rounded-xl bg-white shadow text-sm font-semibold">ホスト（先生）</button>
+      <button id="tab-play" class="px-3 py-2 rounded-xl bg-white shadow text-sm font-semibold">生徒モード</button>
+      <span class="ml-auto text-sm text-slate-500">v1.0</span>
+    </div>
+
+    <!-- Host Panel -->
+    <section id="panel-author" class="bg-white rounded-2xl shadow p-4 md:p-6 space-y-4">
+      <div class="grid md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold mb-2">英文を1行に1問ずつ入力</label>
+          <textarea id="input-sentences" class="w-full h-44 rounded-xl border-slate-300 focus:ring-2 focus:ring-indigo-400 p-3" placeholder="例\nI have a dream today.\nReading books makes me happy.\nWhen I was a child, I lived in Sapporo." spellcheck="false"></textarea>
+          <div class="mt-2 flex flex-wrap gap-2 text-sm">
+            <label class="inline-flex items-center gap-2"><input id="opt-punct" type="checkbox" class="accent-indigo-500" checked>句読点を別トークンにする</label>
+            <label class="inline-flex items-center gap-2"><input id="opt-case" type="checkbox" class="accent-indigo-500" checked>大文字小文字を無視して採点</label>
+            <label class="inline-flex items-center gap-2"><input id="opt-article" type="checkbox" class="accent-indigo-500">冠詞(a, an, the)もシャッフル</label>
+          </div>
+        </div>
+        <div class="space-y-3">
+          <div class="flex items-center gap-2">
+            <button id="btn-build" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold shadow">問題を作る</button>
+            <button id="btn-demo" class="px-3 py-2 rounded-xl bg-slate-100 font-semibold">サンプルを入れる</button>
+            <button id="btn-export" class="px-3 py-2 rounded-xl bg-slate-100 font-semibold" title="URLに問題を埋め込んで共有">共有リンクをコピー</button>
+          </div>
+          <p class="text-sm text-slate-600">⚙️ 共有リンクは <code>?s=</code> に問題を埋め込んだURLを生成します。Google Classroom「各生徒にコピー」で配布も可。</p>
+          <div class="text-sm bg-slate-50 rounded-xl p-3 leading-6">
+            <div class="font-semibold mb-1">遊び方（生徒画面）</div>
+            <ul class="list-disc pl-5 space-y-1">
+              <li>シャッフルされたタイルを<span class="font-semibold">タップで入れ替え</span>できます（2回タップでスワップ）。</li>
+              <li>またはタイルをタップして<span class="font-semibold">解答欄に送る</span>→戻すで並べ替え。</li>
+              <li><span class="kbd">採点</span>で正誤表示。<span class="kbd">次へ</span>で次の問題。</li>
+            </ul>
+            <div class="mt-2 text-xs text-slate-500">※実験的ドラッグ対応は今後追加予定。現状はタップ操作が確実です。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Play Panel -->
+    <section id="panel-play" class="hidden bg-white rounded-2xl shadow p-4 md:p-6 space-y-4">
+      <div class="flex items-center gap-3">
+        <div class="text-sm text-slate-600">問題 <span id="lbl-idx">0</span>/<span id="lbl-total">0</span></div>
+        <div class="ml-auto flex items-center gap-2">
+          <button id="btn-shuffle" class="px-3 py-2 rounded-xl bg-slate-100 font-semibold">もう一度シャッフル</button>
+          <button id="btn-reset" class="px-3 py-2 rounded-xl bg-slate-100 font-semibold">リセット</button>
+          <button id="btn-check" class="px-4 py-2 rounded-xl bg-emerald-600 text-white font-semibold">採点</button>
+          <button id="btn-next" class="px-4 py-2 rounded-xl bg-indigo-600 text-white font-semibold">次へ ▶</button>
+        </div>
+      </div>
+
+      <!-- Sentence Prompt (optional hint) -->
+      <div id="area-hint" class="text-slate-500 text-sm"></div>
+
+      <!-- Dropzone style build mode -->
+      <div class="grid md:grid-cols-2 gap-4">
+        <div>
+          <div class="text-xs text-slate-500 mb-1">🔀 並べ替え（タップで選択 → 解答欄へ）</div>
+          <div id="row-pool" class="token-row dropzone bg-slate-50"></div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 mb-1">🧩 解答欄</div>
+          <div id="row-answer" class="token-row dropzone"></div>
+        </div>
+      </div>
+
+      <div id="area-feedback" class="mt-3 text-sm"></div>
+    </section>
+
+    <footer class="mt-8 text-center text-xs text-slate-500">
+      © 2025 語順パズル — single-file, privacy-friendly. No tracking.
+    </footer>
+  </main>
+
+  <template id="tpl-tile">
+    <button class="tile px-3 py-2 rounded-xl bg-white shadow border text-base font-semibold"></button>
+  </template>
+
+  <script>
+    // --- Helpers ---
+    const $ = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    const state = {
+      items: [],            // [{tokens:[...], answer:[...] }]
+      idx: 0,
+      options: { punct:true, case:false, keepArticles:false },
+    };
+
+    function tokenize(str, {punct=true, keepArticles=false}={}){
+      const cleaned = str.replace(/\s+/g,' ').trim();
+      if(!punct){
+        let tokens = cleaned.split(' ');
+        if(!keepArticles) tokens = tokens; // already included in split; keep/shuffle with others by default
+        return tokens.filter(t=>t.length);
+      }
+      // Split words and punctuation (keeps contractions like don't)
+      const re = /([A-Za-z]+\'?[A-Za-z]*|[0-9]+|[^\sA-Za-z0-9])/g;
+      const raw = cleaned.match(re) || [];
+      // Optionally keep articles next to following noun by tagging; here we just return as is and may unsort later
+      return raw;
+    }
+
+    function detokenize(tokens){
+      // Join with spaces, but avoid spaces before punctuation
+      let out = '';
+      for(const t of tokens){
+        if(/^[,.;:!?)]$/.test(t)){ out = out.trimEnd() + t + ' '; }
+        else if(/^['\)]$/.test(t)) { out = out.trimEnd() + t + ' '; }
+        else if(/^[\(]$/.test(t)) { out += t; }
+        else { out += t + ' '; }
+      }
+      return out.trim();
+    }
+
+    function shuffle(arr){
+      const a = arr.slice();
+      for(let i=a.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [a[i],a[j]]=[a[j],a[i]];
+      }
+      return a;
+    }
+
+    function eqTokens(a,b,{ignoreCase=false}){
+      if(a.length!==b.length) return false;
+      for(let i=0;i<a.length;i++){
+        const x = ignoreCase? String(a[i]).toLowerCase(): String(a[i]);
+        const y = ignoreCase? String(b[i]).toLowerCase(): String(b[i]);
+        if(x!==y) return false;
+      }
+      return true;
+    }
+
+    function buildFromTextarea(){
+      const text = $('#input-sentences').value.trim();
+      if(!text){ alert('英文を入力してください'); return; }
+      const lines = text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+      state.items = lines.map(line=>{
+        const tokens = tokenize(line, {punct:$('#opt-punct').checked, keepArticles:$('#opt-article').checked});
+        return { original: line, tokens, answer: tokens.slice() };
+      });
+      state.idx = 0;
+      state.options = { punct: $('#opt-punct').checked, case: $('#opt-case').checked, keepArticles: $('#opt-article').checked };
+      $('#lbl-total').textContent = state.items.length;
+      switchTo('play');
+      loadCurrent(true);
+    }
+
+    function loadCurrent(initialShuffle=false){
+      const cur = state.items[state.idx];
+      if(!cur) return;
+      $('#lbl-idx').textContent = state.idx+1;
+      $('#area-hint').textContent = '';
+      renderRound(cur, initialShuffle);
+    }
+
+    function renderRound(item, doShuffle){
+      const pool = $('#row-pool');
+      const ans = $('#row-answer');
+      pool.innerHTML=''; ans.innerHTML='';
+      const order = doShuffle ? shuffle(item.tokens) : item.tokens.slice();
+      // Ensure not equal to answer when shuffling
+      if(doShuffle && eqTokens(order, item.answer, {ignoreCase: state.options.case})){
+        order.reverse();
+      }
+      for(const tok of order){
+        const node = tile(tok);
+        pool.appendChild(node);
+      }
+      $('#area-feedback').innerHTML = '';
+    }
+
+    function tile(tok){
+      const t = $('#tpl-tile').content.firstElementChild.cloneNode(true);
+      t.textContent = tok;
+      t.dataset.tok = tok;
+      t.addEventListener('click', onTileClick);
+      return t;
+    }
+
+    function onTileClick(e){
+      const el = e.currentTarget;
+      const parent = el.parentElement;
+      const pool = $('#row-pool');
+      const ans = $('#row-answer');
+      // Swap select if in same row
+      if(parent===pool){
+        if(el.classList.contains('selected')){ el.classList.remove('selected'); return; }
+        const prev = pool.querySelector('.tile.selected');
+        if(prev && prev!==el){
+          // swap positions
+          const a = prev; const b = el;
+          const aNext = a.nextSibling;
+          const bNext = b.nextSibling;
+          parent.insertBefore(b, aNext); // move b after a
+          parent.insertBefore(a, bNext); // move a after original b position
+          prev.classList.remove('selected');
+        } else {
+          // move to answer if any empty intention
+          el.classList.add('selected');
+          setTimeout(()=>{ el.classList.remove('selected'); moveTile(el, ans); }, 120);
+        }
+        return;
+      }
+      if(parent===ans){
+        // tap in answer = move back to pool (before first wrong token if exists)
+        moveTile(el, pool);
+      }
+    }
+
+    function moveTile(el, target){
+      el.classList.remove('correct','wrong');
+      target.appendChild(el);
+    }
+
+    function currentAnswerTokens(){
+      return $$('#row-answer .tile').map(n=>n.dataset.tok);
+    }
+
+    function check(){
+      const cur = state.items[state.idx];
+      const ansTokens = currentAnswerTokens();
+      const full = ansTokens.length === cur.answer.length;
+      const correct = full && eqTokens(ansTokens, cur.answer, {ignoreCase: state.options.case});
+      // Mark tokens
+      const nodes = $$('#row-answer .tile');
+      nodes.forEach((n,i)=>{
+        const expect = cur.answer[i];
+        const got = n.dataset.tok;
+        const ok = (state.options.case? String(got).toLowerCase() : got) === (state.options.case? String(expect).toLowerCase() : expect);
+        n.classList.toggle('correct', ok);
+        n.classList.toggle('wrong', !ok);
+      });
+      if(!full){
+        $('#area-feedback').innerHTML = '<span class="text-amber-600">まだ語が足りません。すべてのタイルを解答欄へ移動してください。</span>';
+        return;
+      }
+      if(correct){
+        $('#area-feedback').innerHTML = '<span class="text-emerald-700 font-semibold">🎉 正解！</span>';
+      } else {
+        $('#area-feedback').innerHTML = '<span class="text-rose-700 font-semibold">✋ もう一歩！</span> タイルをタップして入れ替えてみましょう。';
+      }
+    }
+
+    function next(){
+      if(state.idx < state.items.length-1){
+        state.idx++;
+        loadCurrent(true);
+      } else {
+        $('#area-feedback').innerHTML = '<span class="text-indigo-700 font-semibold">おしまい！</span> 右上の共有リンクで別のセットを配布できます。';
+      }
+    }
+
+    function resetRound(){
+      loadCurrent(false);
+    }
+
+    function reshuffle(){
+      loadCurrent(true);
+    }
+
+    function switchTo(tab){
+      const a = $('#panel-author');
+      const p = $('#panel-play');
+      if(tab==='author'){ a.classList.remove('hidden'); p.classList.add('hidden'); }
+      else { p.classList.remove('hidden'); a.classList.add('hidden'); }
+    }
+
+    function encodeShareURL(lines){
+      const payload = encodeURIComponent(lines.join('\n'));
+      const url = `${location.origin}${location.pathname}?s=${payload}`;
+      return url;
+    }
+
+    function decodeShareParam(){
+      const u = new URL(location.href);
+      const s = u.searchParams.get('s');
+      if(!s) return null;
+      try { return decodeURIComponent(s); } catch { return null; }
+    }
+
+    function copy(text){
+      navigator.clipboard.writeText(text).then(()=>{
+        toast('共有リンクをコピーしました');
+      }).catch(()=>{
+        alert('コピーに失敗しました。手動で選択してください。\n' + text);
+      })
+    }
+
+    function toast(msg){
+      const el = document.createElement('div');
+      el.textContent = msg;
+      el.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 bg-black text-white text-sm px-4 py-2 rounded-full shadow-lg';
+      document.body.appendChild(el);
+      setTimeout(()=> el.remove(), 1600);
+    }
+
+    // --- Wire up ---
+    $('#btn-build').addEventListener('click', buildFromTextarea);
+    $('#btn-demo').addEventListener('click', ()=>{
+      $('#input-sentences').value = `I have a dream today.\nReading books makes me happy.\nWhen I was a child, I lived in Sapporo.`;
+    });
+    $('#btn-export').addEventListener('click', ()=>{
+      const text = $('#input-sentences').value.trim();
+      if(!text) return alert('まず英文を入力してください');
+      const lines = text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+      const url = encodeShareURL(lines);
+      copy(url);
+    });
+
+    $('#btn-check').addEventListener('click', check);
+    $('#btn-next').addEventListener('click', next);
+    $('#btn-reset').addEventListener('click', resetRound);
+    $('#btn-shuffle').addEventListener('click', reshuffle);
+
+    $('#tab-author').addEventListener('click', ()=> switchTo('author'));
+    $('#tab-play').addEventListener('click', ()=> switchTo('play'));
+
+    // --- Auto-load if shared URL ---
+    (function initFromURL(){
+      const decoded = decodeShareParam();
+      if(decoded){
+        $('#input-sentences').value = decoded;
+        buildFromTextarea();
+        switchTo('play');
+      }
+    })();
+  </script>
+</body>
+</html>
